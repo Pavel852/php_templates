@@ -1,7 +1,7 @@
 <?php
 /**
  * templates.php - Jednoduchý templating systém
- * Verze: 1.4
+ * Verze: 1.6
  * Rok: 2023
  * Autor: PB
  *
@@ -12,7 +12,7 @@
  * - tmpl_open($filename)
  * - tmpl_close($t)
  * - tmpl_iterate($t, $path)
- * - tmpl_set($t, $path_or_key, $value)
+ * - tmpl_set($t, $path_or_key, $value = '')
  * - tmpl_set_array($t, $array)
  * - tmpl_set_iarray($t, $path, $array)
  * - tmpl_parse($t, $path = null)
@@ -33,7 +33,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '1.4';
+    public static $version = '1.6';
 
     private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
@@ -106,12 +106,12 @@ class Template
         }
     }
 
-    private function isPathEnabled($path)
+    private function isPathEnabled($path, $currentEnabledPaths = [])
     {
-        return isset($this->enabledPaths[$path]);
+        return isset($currentEnabledPaths[$path]) || isset($this->enabledPaths[$path]);
     }
 
-    public function set($path_or_key, $value)
+    public function set($path_or_key, $value = '')
     {
         $value = trim($value); // Ořezání mezer
         if (strpos($path_or_key, '/') !== false) {
@@ -122,11 +122,34 @@ class Template
             // Pokud je cesta pod iterací, uložíme data podle indexu iterace
             if (isset($this->iterations[$parentPath])) {
                 $index = $this->iterations[$parentPath] - 1; // Index aktuální iterace
+
+                // Zajistíme, že data pro tuto iteraci jsou pole
+                if (!isset($this->data[$parentPath][$index]) || !is_array($this->data[$parentPath][$index])) {
+                    $this->data[$parentPath][$index] = [];
+                }
+
                 $this->data[$parentPath][$index][$key] = $value;
+
+                // Povolit cestu pro tuto iteraci
+                if (!isset($this->data[$parentPath][$index]['_enabledPaths'])) {
+                    $this->data[$parentPath][$index]['_enabledPaths'] = [];
+                }
+                $segments = explode('/', trim($path, '/'));
+                $accumPath = '';
+                foreach ($segments as $segment) {
+                    $accumPath .= '/' . $segment;
+                    $this->data[$parentPath][$index]['_enabledPaths'][$accumPath] = true;
+                }
             } else {
-                $this->data[$path] = $value;
+                // Zabránění přepsání iterace řetězcem
+                if ($key === '') {
+                    // Pokud je klíč prázdný, neukládáme řetězec na místo pole
+                    $this->data[$path] = [];
+                } else {
+                    $this->data[$path][$key] = $value;
+                }
+                $this->enablePath($path);
             }
-            $this->enablePath($path);
         } else {
             $this->data[$path_or_key] = $value;
         }
@@ -160,14 +183,14 @@ class Template
     {
         $output = '';
         if ($path === null) {
-            $output = $this->render($this->tree, '', []);
+            $output = $this->render($this->tree, '', [], []);
         } else {
             $path = $this->normalizePath($path);
             $nodes = $this->findNodeByPath($this->tree, $path);
             if ($nodes !== null) {
                 // Dočasně povolí tuto cestu pro renderování
                 $this->enabledPaths[$path] = true;
-                $output = $this->render($nodes, $path, []);
+                $output = $this->render($nodes, $path, [], []);
             } else {
                 $output = '';
             }
@@ -175,7 +198,7 @@ class Template
         return trim($output); // Ořezání mezer ve výstupu
     }
 
-    private function render($nodes, $currentPath, $currentData)
+    private function render($nodes, $currentPath, $currentData, $currentEnabledPaths = [])
     {
         $output = '';
         foreach ($nodes as $node) {
@@ -189,14 +212,16 @@ class Template
                 $tag = $node['tag'];
                 $path = $this->normalizePath($currentPath . '/' . $tag);
 
-                if ($this->isPathEnabled($path)) {
+                if ($this->isPathEnabled($path, $currentEnabledPaths)) {
                     if (isset($this->data[$path]['_iarray'])) {
                         // Iterace přes pole
                         $array = $this->data[$path]['_iarray'];
                         foreach ($array as $item) {
                             // Sloučení aktuálních dat s daty položky
                             $newData = array_merge($currentData, $item);
-                            $output .= $this->render($node['content'], $path, $newData);
+                            // Sloučení povolených cest
+                            $newEnabledPaths = $currentEnabledPaths;
+                            $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
                         }
                     } elseif (isset($this->iterations[$path])) {
                         // Iterace na základě počtu volání iterate
@@ -204,21 +229,42 @@ class Template
                         for ($i = 0; $i < $iterations; $i++) {
                             // Sloučení aktuálních dat s daty pro tuto iteraci
                             if (isset($this->data[$path][$i])) {
-                                $newData = array_merge($currentData, $this->data[$path][$i]);
+                                $iterationData = $this->data[$path][$i];
+
+                                // Zajistíme, že iterationData je pole
+                                if (!is_array($iterationData)) {
+                                    $iterationData = [];
+                                }
+
+                                $newEnabledPaths = isset($iterationData['_enabledPaths']) ? array_merge($currentEnabledPaths, $iterationData['_enabledPaths']) : $currentEnabledPaths;
+                                unset($iterationData['_enabledPaths']); // Odstranění _enabledPaths z dat
+                                $newData = array_merge($currentData, $iterationData);
                             } else {
                                 $newData = $currentData;
+                                $newEnabledPaths = $currentEnabledPaths;
                             }
-                            $output .= $this->render($node['content'], $path, $newData);
+                            // Renderování obsahu s daty a povolenými cestami pro tuto iteraci
+                            $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
                         }
                     } else {
                         // Renderuje jednou, pokud bylo nastaveno přes tmpl_set
                         // Sloučení aktuálních dat s daty pro tuto cestu
                         if (isset($this->data[$path])) {
-                            $newData = array_merge($currentData, $this->data[$path]);
+                            $pathData = $this->data[$path];
+
+                            // Zajistíme, že pathData je pole
+                            if (!is_array($pathData)) {
+                                $pathData = [];
+                            }
+
+                            $newEnabledPaths = isset($pathData['_enabledPaths']) ? array_merge($currentEnabledPaths, $pathData['_enabledPaths']) : $currentEnabledPaths;
+                            unset($pathData['_enabledPaths']); // Odstranění _enabledPaths z dat
+                            $newData = array_merge($currentData, $pathData);
                         } else {
                             $newData = $currentData;
+                            $newEnabledPaths = $currentEnabledPaths;
                         }
-                        $output .= $this->render($node['content'], $path, $newData);
+                        $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
                     }
                 } else {
                     // Shromažďování nezobrazených tagů
@@ -473,7 +519,7 @@ function tmpl_iterate($t, $path)
     }
 }
 
-function tmpl_set($t, $path_or_key, $value)
+function tmpl_set($t, $path_or_key, $value = '')
 {
     if ($t instanceof Template) {
         $t->set($path_or_key, $value);
