@@ -1,12 +1,23 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 2.0
+ * Version: 2.2
  * Release Date: 10/2024
  * Author: PB
  *
  * This file implements a simple templating system for working with HTML templates with custom tags and variables.
  * The system allows opening templates, setting variables with optional text transformations, iterating over blocks, parsing the final output, and inserting tables generated from arrays.
+ *
+ * Transformations:
+ * - `diacritics`: Removes diacritics from the text.
+ * - `upper`: Converts the text to uppercase.
+ * - `lower`: Converts the text to lowercase.
+ * - `1up`: Capitalizes the first letter of the text.
+ * - `1upw`: Capitalizes the first letter of each word.
+ * - `num_cz`: Formats a number to the Czech format (e.g., `33 545,00`).
+ * - `num_us`: Formats a number to the US format (e.g., `12,678.00`).
+ * - `date2cz`: Converts a date from `YYYY-MM-DD` to `DD.MM.YYYY`.
+ * - `date2us`: Converts a date from `DD.MM.YYYY` to `YYYY-MM-DD`.
  *
  * Functions:
  * - tmpl_open($filename)
@@ -35,9 +46,12 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '2.0';
+    public static $version = '2.1';
 
-    private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
+    private $selfClosingTags = [
+        'area', 'base', 'br', 'col', 'embed', 'hr', 'img',
+        'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'
+    ];
     protected $settings = [];
 
     public function __construct($filename = null, $content = null)
@@ -67,7 +81,13 @@ class Template
         $pattern = '/<tmpl:([a-zA-Z0-9_]+)>(.*?)<\/tmpl:\\1>/s';
         $tree = [];
         $offset = 0;
-        while (preg_match($pattern, $content, $matches, PREG_OFFSET_CAPTURE, $offset)) {
+        while (preg_match(
+            $pattern,
+            $content,
+            $matches,
+            PREG_OFFSET_CAPTURE,
+            $offset
+        )) {
             $tag = $matches[1][0];
             $innerContent = $matches[2][0];
             $startPos = $matches[0][1];
@@ -89,7 +109,6 @@ class Template
             $offset = $endPos;
         }
 
-        // Append any remaining content
         $remaining = substr($content, $offset);
         if (trim($remaining) !== '') {
             $tree[] = $remaining;
@@ -117,7 +136,6 @@ class Template
     private function enablePath($path)
     {
         $this->enabledPaths[$path] = true;
-        // Enable parent paths
         $segments = explode('/', trim($path, '/'));
         $accumPath = '';
         foreach ($segments as $segment) {
@@ -135,7 +153,8 @@ class Template
      */
     private function isPathEnabled($path, $currentEnabledPaths = [])
     {
-        return isset($currentEnabledPaths[$path]) || isset($this->enabledPaths[$path]);
+        return isset($currentEnabledPaths[$path]) ||
+               isset($this->enabledPaths[$path]);
     }
 
     /**
@@ -164,7 +183,8 @@ class Template
                 $index = $this->iterations[$parentPath] - 1; // Current iteration index
 
                 // Ensure data for this iteration is an array
-                if (!isset($this->data[$parentPath][$index]) || !is_array($this->data[$parentPath][$index])) {
+                if (!isset($this->data[$parentPath][$index]) ||
+                    !is_array($this->data[$parentPath][$index])) {
                     $this->data[$parentPath][$index] = [];
                 }
 
@@ -178,14 +198,16 @@ class Template
                 $accumPath = '';
                 foreach ($segments as $segment) {
                     $accumPath .= '/' . $segment;
-                    $this->data[$parentPath][$index]['_enabledPaths'][$accumPath] = true;
+                    $this->data[$parentPath][$index]['_enabledPaths']
+                        [$accumPath] = true;
                 }
             } else {
                 if ($key === '') {
                     // If key is empty, we don't store a string in place of an array
                     $this->data[$path] = [];
                 } else {
-                    if (!isset($this->data[$path]) || !is_array($this->data[$path])) {
+                    if (!isset($this->data[$path]) ||
+                        !is_array($this->data[$path])) {
                         $this->data[$path] = [];
                     }
                     $this->data[$path][$key] = $value;
@@ -220,10 +242,23 @@ class Template
                     $text = mb_strtolower($text);
                     break;
                 case '1up':
-                    $text = mb_strtoupper(mb_substr($text, 0, 1)) . mb_substr($text, 1);
+                    $text = mb_strtoupper(mb_substr($text, 0, 1)) .
+                            mb_substr($text, 1);
                     break;
                 case '1upw':
                     $text = mb_convert_case($text, MB_CASE_TITLE);
+                    break;
+                case 'num_cz':
+                    $text = $this->formatNumberCz($text);
+                    break;
+                case 'num_us':
+                    $text = $this->formatNumberUs($text);
+                    break;
+                case 'date2cz':
+                    $text = $this->formatDateToCz($text);
+                    break;
+                case 'date2us':
+                    $text = $this->formatDateToUs($text);
                     break;
             }
         }
@@ -247,6 +282,66 @@ class Template
             'Ť' => 'T', 'Ú' => 'U', 'Ů' => 'U', 'Ý' => 'Y', 'Ž' => 'Z',
         );
         return strtr($text, $normalizeChars);
+    }
+
+    /**
+     * Formats a number to the Czech format (e.g., "33545.00" to "33 545,00").
+     *
+     * @param string $number The number to format.
+     * @return string The formatted number.
+     */
+    private function formatNumberCz($number)
+    {
+        $number = floatval(str_replace([' ', ','], ['', '.'], $number));
+        return number_format($number, 2, ',', ' ');
+    }
+
+    /**
+     * Formats a number to the US format (e.g., "12678.00" to "12,678.00").
+     *
+     * @param string $number The number to format.
+     * @return string The formatted number.
+     */
+    private function formatNumberUs($number)
+    {
+        $number = floatval(str_replace([' ', ','], ['', '.'], $number));
+        return number_format($number, 2, '.', ',');
+    }
+
+    /**
+     * Converts a date from "YYYY-MM-DD" to "DD.MM.YYYY".
+     *
+     * @param string $date The date to convert.
+     * @return string The converted date.
+     */
+    private function formatDateToCz($date)
+    {
+        $timestamp = strtotime($date);
+        if ($timestamp !== false) {
+            return date('d.m.Y', $timestamp);
+        }
+        return $date; // Return original if conversion fails
+    }
+
+    /**
+     * Converts a date from "DD.MM.YYYY" to "YYYY-MM-DD".
+     *
+     * @param string $date The date to convert.
+     * @return string The converted date.
+     */
+    private function formatDateToUs($date)
+    {
+        // Remove extra spaces
+        $date = preg_replace('/\s+/', '', $date);
+        // Convert to standard format
+        $dateParts = preg_split('/[.\-\/]/', $date);
+        if (count($dateParts) === 3) {
+            list($day, $month, $year) = $dateParts;
+            if (checkdate($month, $day, $year)) {
+                return sprintf('%04d-%02d-%02d', $year, $month, $day);
+            }
+        }
+        return $date; // Return original if conversion fails
     }
 
     /**
@@ -323,14 +418,20 @@ class Template
      * @param array $currentEnabledPaths The currently enabled paths.
      * @return string The rendered output.
      */
-    private function render($nodes, $currentPath, $currentData, $currentEnabledPaths = [])
-    {
+    private function render(
+        $nodes,
+        $currentPath,
+        $currentData,
+        $currentEnabledPaths = []
+    ) {
         $output = '';
         foreach ($nodes as $node) {
             if (is_string($node)) {
-                // Replace variables in the string
-                $replaced = $this->replaceVariables($node, $currentPath, $currentData);
-                // Process text according to settings
+                $replaced = $this->replaceVariables(
+                    $node,
+                    $currentPath,
+                    $currentData
+                );
                 $processed = $this->processText($replaced);
                 if (trim($processed) !== '') {
                     $output .= $processed;
@@ -341,60 +442,73 @@ class Template
 
                 if ($this->isPathEnabled($path, $currentEnabledPaths)) {
                     if (isset($this->data[$path]['_iarray'])) {
-                        // Iterate over array
                         $array = $this->data[$path]['_iarray'];
                         foreach ($array as $item) {
-                            // Merge current data with item data
                             $newData = array_merge($currentData, $item);
-                            // Merge enabled paths
                             $newEnabledPaths = $currentEnabledPaths;
-                            $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
+                            $output .= $this->render(
+                                $node['content'],
+                                $path,
+                                $newData,
+                                $newEnabledPaths
+                            );
                         }
                     } elseif (isset($this->iterations[$path])) {
-                        // Iterate based on the number of times iterate was called
                         $iterations = $this->iterations[$path];
                         for ($i = 0; $i < $iterations; $i++) {
-                            // Merge current data with data for this iteration
                             if (isset($this->data[$path][$i])) {
                                 $iterationData = $this->data[$path][$i];
-
-                                // Ensure iterationData is an array
                                 if (!is_array($iterationData)) {
                                     $iterationData = [];
                                 }
-
-                                $newEnabledPaths = isset($iterationData['_enabledPaths']) ? array_merge($currentEnabledPaths, $iterationData['_enabledPaths']) : $currentEnabledPaths;
-                                unset($iterationData['_enabledPaths']); // Remove _enabledPaths from data
-                                $newData = array_merge($currentData, $iterationData);
+                                $newEnabledPaths = isset(
+                                    $iterationData['_enabledPaths']
+                                ) ? array_merge(
+                                    $currentEnabledPaths,
+                                    $iterationData['_enabledPaths']
+                                ) : $currentEnabledPaths;
+                                unset($iterationData['_enabledPaths']);
+                                $newData = array_merge(
+                                    $currentData,
+                                    $iterationData
+                                );
                             } else {
                                 $newData = $currentData;
                                 $newEnabledPaths = $currentEnabledPaths;
                             }
-                            // Render content with data and enabled paths for this iteration
-                            $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
+                            $output .= $this->render(
+                                $node['content'],
+                                $path,
+                                $newData,
+                                $newEnabledPaths
+                            );
                         }
                     } else {
-                        // Render once if set via tmpl_set
-                        // Merge current data with data for this path
                         if (isset($this->data[$path])) {
                             $pathData = $this->data[$path];
-
-                            // Ensure pathData is an array
                             if (!is_array($pathData)) {
                                 $pathData = [];
                             }
-
-                            $newEnabledPaths = isset($pathData['_enabledPaths']) ? array_merge($currentEnabledPaths, $pathData['_enabledPaths']) : $currentEnabledPaths;
-                            unset($pathData['_enabledPaths']); // Remove _enabledPaths from data
+                            $newEnabledPaths = isset(
+                                $pathData['_enabledPaths']
+                            ) ? array_merge(
+                                $currentEnabledPaths,
+                                $pathData['_enabledPaths']
+                            ) : $currentEnabledPaths;
+                            unset($pathData['_enabledPaths']);
                             $newData = array_merge($currentData, $pathData);
                         } else {
                             $newData = $currentData;
                             $newEnabledPaths = $currentEnabledPaths;
                         }
-                        $output .= $this->render($node['content'], $path, $newData, $newEnabledPaths);
+                        $output .= $this->render(
+                            $node['content'],
+                            $path,
+                            $newData,
+                            $newEnabledPaths
+                        );
                     }
                 } else {
-                    // Collect unrendered tags
                     $this->unrenderedTags[] = $path;
                 }
             }
@@ -410,25 +524,29 @@ class Template
      * @param array $currentData The current data context.
      * @return string The text with placeholders replaced.
      */
-    private function replaceVariables($text, $currentPath, $currentData)
-    {
-        // Replace placeholders like {variable}
-        return preg_replace_callback('/\{([a-zA-Z0-9_]+)\}/', function ($matches) use ($currentPath, $currentData) {
-            $key = $matches[1];
-            $pathKey = $this->normalizePath($currentPath . '/' . $key);
-            if (isset($currentData[$key])) {
-                return $currentData[$key];
-            } elseif (isset($this->data[$pathKey])) {
-                return $this->data[$pathKey];
-            } elseif (isset($this->data[$key])) {
-                return $this->data[$key];
-            } else {
-                // Collect unrendered placeholders
-                $this->unrenderedPlaceholders[] = $key;
-                // Remove unused placeholders
-                return '';
-            }
-        }, $text);
+    private function replaceVariables(
+        $text,
+        $currentPath,
+        $currentData
+    ) {
+        return preg_replace_callback(
+            '/\{([a-zA-Z0-9_]+)\}/',
+            function ($matches) use ($currentPath, $currentData) {
+                $key = $matches[1];
+                $pathKey = $this->normalizePath($currentPath . '/' . $key);
+                if (isset($currentData[$key])) {
+                    return $currentData[$key];
+                } elseif (isset($this->data[$pathKey])) {
+                    return $this->data[$pathKey];
+                } elseif (isset($this->data[$key])) {
+                    return $this->data[$key];
+                } else {
+                    $this->unrenderedPlaceholders[] = $key;
+                    return '';
+                }
+            },
+            $text
+        );
     }
 
     /**
@@ -437,44 +555,57 @@ class Template
      * @param string $text The text to process.
      * @return string The processed text.
      */
-    private function processText($text)
-    {
-        if (empty($this->settings)) {
-            return $text;
-        }
-
-        // Process email addresses
-        if (isset($this->settings['email'])) {
-            $text = preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
-                $email = $matches[1];
-                return '<a href="mailto:' . $email . '">' . $email . '</a>';
-            }, $text);
-        }
-
-        // Process phone numbers
-        if (isset($this->settings['tel'])) {
-            $text = preg_replace_callback('/(\+?\d[\d\s\-]{7,}\d)/', function ($matches) {
-                $tel = $matches[1];
-                $telClean = preg_replace('/[\s\-]/', '', $tel);
-                $formattedTel = $this->formatPhoneNumber($telClean);
-                return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
-            }, $text);
-        }
-
-        // Process URLs
-        if (isset($this->settings['url'])) {
-            $text = preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
-                $url = $matches[1];
-                $href = $url;
-                if (strpos($url, 'http') !== 0) {
-                    $href = 'http://' . $url;
-                }
-                return '<a href="' . $href . '">' . $url . '</a>';
-            }, $text);
-        }
-
+private function processText($text)
+{
+    if (empty($this->settings)) {
         return $text;
     }
+
+    // Process email addresses
+    if (isset($this->settings['email'])) {
+        $text = preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
+            $email = $matches[1];
+            return '<a href="mailto:' . $email . '">' . $email . '</a>';
+        }, $text);
+    }
+
+    // Process phone numbers
+    if (isset($this->settings['tel'])) {
+        $text = preg_replace_callback(
+            '/\b(\+?\d[\d\s]{6,}\d)\b/',
+            function ($matches) {
+                $tel = $matches[1];
+
+                // Check if the matched string resembles a date
+                if (preg_match('/^\d{4}-\d{1,2}-\d{1,2}$/', $tel) ||
+                    preg_match('/^\d{4}\.\d{1,2}\.\d{1,2}$/', $tel) ||
+                    preg_match('/^\d{1,2}\.\d{1,2}\.\d{4}$/', $tel)) {
+                    // It's a date, return as is
+                    return $tel;
+                }
+
+                $telClean = preg_replace('/[\s]/', '', $tel);
+                $formattedTel = $this->formatPhoneNumber($telClean);
+                return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
+            },
+            $text
+        );
+    }
+
+    // Process URLs
+    if (isset($this->settings['url'])) {
+        $text = preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
+            $url = $matches[1];
+            $href = $url;
+            if (strpos($url, 'http') !== 0) {
+                $href = 'http://' . $url;
+            }
+            return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
+        }, $text);
+    }
+
+    return $text;
+}
 
     /**
      * Formats phone numbers according to specified patterns.
@@ -484,34 +615,27 @@ class Template
      */
     private function formatPhoneNumber($number)
     {
-        // Remove all non-digit characters except '+'
         $number = preg_replace('/[^\d+]/', '', $number);
-
-        // If number starts with '+', handle country code
         $formatted = '';
         if (strpos($number, '+') === 0) {
             $formatted .= '+';
             $number = substr($number, 1);
         }
 
-        // Extract country code if present (assume 3 digits)
         if ($formatted === '+') {
-            $countryCodeLength = 3; // Adjust as necessary
+            $countryCodeLength = 3;
             $countryCode = substr($number, 0, $countryCodeLength);
             $formatted .= $countryCode . ' ';
             $number = substr($number, $countryCodeLength);
         }
 
-        // Now format the remaining number
         $groups = [];
 
-        // For the first group, use 3 digits
         if (strlen($number) >= 3) {
             $groups[] = substr($number, 0, 3);
             $number = substr($number, 3);
         }
 
-        // Now split the rest into groups of two digits
         while (strlen($number) > 0) {
             if (strlen($number) >= 2) {
                 $groups[] = substr($number, 0, 2);
@@ -570,7 +694,6 @@ class Template
      */
     public function close()
     {
-        // Clean up resources
         $this->content = null;
         $this->tree = null;
         $this->data = null;
@@ -644,7 +767,10 @@ class Template
                 $tag = $node['tag'];
                 $path = $currentPath . '/' . $tag;
                 $tags[] = $path;
-                $tags = array_merge($tags, $this->collectTags($node['content'], $path));
+                $tags = array_merge(
+                    $tags,
+                    $this->collectTags($node['content'], $path)
+                );
             }
         }
         return $tags;
@@ -662,12 +788,19 @@ class Template
         $placeholders = [];
         foreach ($nodes as $node) {
             if (is_string($node)) {
-                preg_match_all('/\{([a-zA-Z0-9_]+)\}/', $node, $matches);
+                preg_match_all(
+                    '/\{([a-zA-Z0-9_]+)\}/',
+                    $node,
+                    $matches
+                );
                 foreach ($matches[1] as $placeholder) {
                     $placeholders[] = $placeholder;
                 }
             } elseif (is_array($node)) {
-                $placeholders = array_merge($placeholders, $this->collectPlaceholders($node['content'], $currentPath));
+                $placeholders = array_merge(
+                    $placeholders,
+                    $this->collectPlaceholders($node['content'], $currentPath)
+                );
             }
         }
         return array_unique($placeholders);
@@ -723,7 +856,10 @@ class Template
         $segments = explode('/', trim($path, '/'));
         $tagToReplace = array_pop($segments);
         $parentPath = '/' . implode('/', $segments);
-        $parentNode = &$this->findNodeReferenceByPath($this->tree, $parentPath);
+        $parentNode = &$this->findNodeReferenceByPath(
+            $this->tree,
+            $parentPath
+        );
 
         if ($parentNode !== null && is_array($parentNode)) {
             foreach ($parentNode as &$node) {
@@ -770,7 +906,10 @@ class Template
                 if (empty($segments)) {
                     return $node['content'];
                 } else {
-                    return $this->findNodeReference($node['content'], $segments);
+                    return $this->findNodeReference(
+                        $node['content'],
+                        $segments
+                    );
                 }
             }
         }
@@ -785,14 +924,19 @@ class Template
      * @param array $attributes The attributes for the tag.
      * @param string $content The inner content of the tag.
      */
-    public function setTag($path_or_key, $htmltag, $attributes, $content = '')
-    {
+    public function setTag(
+        $path_or_key,
+        $htmltag,
+        $attributes,
+        $content = ''
+    ) {
         $html = '<' . $htmltag;
         foreach ($attributes as $attr => $value) {
             if ($value === '') {
                 $html .= ' ' . $attr;
             } else {
-                $html .= ' ' . $attr . '="' . htmlspecialchars($value, ENT_QUOTES) . '"';
+                $html .= ' ' . $attr . '="' .
+                         htmlspecialchars($value, ENT_QUOTES) . '"';
             }
         }
         if (in_array($htmltag, $this->selfClosingTags)) {
@@ -844,7 +988,10 @@ class Template
             $html .= '<tr>';
             foreach ($row as $cellIndex => $cell) {
                 // Apply text transformations
-                $cellContent = $this->applyTextTransformations($cell, implode(',', $textParams));
+                $cellContent = $this->applyTextTransformations(
+                    $cell,
+                    implode(',', $textParams)
+                );
 
                 // Determine if this cell should be a header
                 if ($useHeader && $rowIndex === 0) {
@@ -1034,8 +1181,13 @@ function tmpl_include($t, $path, $filename)
  * @param array $attributes The attributes for the tag.
  * @param string $content The inner content of the tag.
  */
-function tmpl_set_tag($t, $path_or_key, $htmltag, $attributes, $content = '')
-{
+function tmpl_set_tag(
+    $t,
+    $path_or_key,
+    $htmltag,
+    $attributes,
+    $content = ''
+) {
     if ($t instanceof Template) {
         $t->setTag($path_or_key, $htmltag, $attributes, $content);
     }
@@ -1068,5 +1220,4 @@ function tmpl_table($t, $path_or_key, $data, $params = '')
         $t->setTable($path_or_key, $data, $params);
     }
 }
-
 ?>
