@@ -1,12 +1,12 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 1.9
+ * Version: 2.0
  * Release Date: 10/2024
  * Author: PB
  *
  * This file implements a simple templating system for working with HTML templates with custom tags and variables.
- * The system allows opening templates, setting variables, iterating over blocks, and parsing the final output.
+ * The system allows opening templates, setting variables with optional text transformations, iterating over blocks, parsing the final output, and inserting tables generated from arrays.
  *
  * Functions:
  * - tmpl_open($filename)
@@ -23,6 +23,7 @@
  * - tmpl_exists($t, $path)
  * - tmpl_set_tag($t, $path, $htmltag, $attributes, $content = '')
  * - tmpl_setting($t, $options)
+ * - tmpl_table($t, $path_or_key, $data, $params = '')
  */
 
 class Template
@@ -34,7 +35,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '1.9';
+    public static $version = '2.0';
 
     private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
     protected $settings = [];
@@ -817,6 +818,49 @@ class Template
             }
         }
     }
+
+    /**
+     * Sets an HTML table at a specified path using the provided data array.
+     *
+     * @param string $path_or_key The path or key where to set the table.
+     * @param array $data The data array to generate the table from.
+     * @param string $params Optional parameters for table generation and text transformations.
+     */
+    public function setTable($path_or_key, $data, $params = '')
+    {
+        if (empty($data) || !is_array($data)) {
+            return;
+        }
+
+        // Extract parameters
+        $options = explode(',', $params);
+        $useHeader = in_array('th', $options);
+        $textParams = array_diff($options, ['th']);
+
+        // Start building the table HTML
+        $html = '<table border="1" cellpadding="5" cellspacing="0">';
+
+        foreach ($data as $rowIndex => $row) {
+            $html .= '<tr>';
+            foreach ($row as $cellIndex => $cell) {
+                // Apply text transformations
+                $cellContent = $this->applyTextTransformations($cell, implode(',', $textParams));
+
+                // Determine if this cell should be a header
+                if ($useHeader && $rowIndex === 0) {
+                    $html .= '<th>' . htmlspecialchars($cellContent) . '</th>';
+                } else {
+                    $html .= '<td>' . htmlspecialchars($cellContent) . '</td>';
+                }
+            }
+            $html .= '</tr>';
+        }
+
+        $html .= '</table>';
+
+        // Set the generated table HTML into the template
+        $this->set($path_or_key, $html);
+    }
 }
 
 // Global functions
@@ -926,8 +970,6 @@ function tmpl_debug($t)
     }
 }
 
-// New functions
-
 /**
  * Returns a list of all tags in the template.
  *
@@ -1011,4 +1053,20 @@ function tmpl_setting($t, $options)
         $t->setting($options);
     }
 }
+
+/**
+ * Sets an HTML table at a specified path in the template using the provided data array.
+ *
+ * @param Template $t The Template object.
+ * @param string $path_or_key The path or key where to set the table.
+ * @param array $data The data array to generate the table from.
+ * @param string $params Optional parameters for table generation and text transformations.
+ */
+function tmpl_table($t, $path_or_key, $data, $params = '')
+{
+    if ($t instanceof Template) {
+        $t->setTable($path_or_key, $data, $params);
+    }
+}
+
 ?>
