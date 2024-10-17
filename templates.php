@@ -1,8 +1,8 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 1.7
- * Year: 2023
+ * Version: 1.9
+ * Release Date: 10/2024
  * Author: PB
  *
  * This file implements a simple templating system for working with HTML templates with custom tags and variables.
@@ -12,7 +12,7 @@
  * - tmpl_open($filename)
  * - tmpl_close($t)
  * - tmpl_iterate($t, $path)
- * - tmpl_set($t, $path_or_key, $value = '')
+ * - tmpl_set($t, $path_or_key, $value = '', $params = '')
  * - tmpl_set_array($t, $array)
  * - tmpl_set_iarray($t, $path, $array)
  * - tmpl_parse($t, $path = null)
@@ -34,7 +34,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '1.7';
+    public static $version = '1.9';
 
     private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
     protected $settings = [];
@@ -55,9 +55,14 @@ class Template
         $this->settings = [];
     }
 
+    /**
+     * Parses the template content into a tree structure.
+     *
+     * @param string $content The template content.
+     * @return array The parsed tree structure.
+     */
     private function parseTemplate($content)
     {
-        // Parse the template content into a tree structure
         $pattern = '/<tmpl:([a-zA-Z0-9_]+)>(.*?)<\/tmpl:\\1>/s';
         $tree = [];
         $offset = 0;
@@ -92,11 +97,22 @@ class Template
         return $tree;
     }
 
+    /**
+     * Normalizes the given path.
+     *
+     * @param string $path The path to normalize.
+     * @return string The normalized path.
+     */
     private function normalizePath($path)
     {
         return '/' . trim($path, '/');
     }
 
+    /**
+     * Enables the given path for rendering.
+     *
+     * @param string $path The path to enable.
+     */
     private function enablePath($path)
     {
         $this->enabledPaths[$path] = true;
@@ -109,14 +125,34 @@ class Template
         }
     }
 
+    /**
+     * Checks if a path is enabled for rendering.
+     *
+     * @param string $path The path to check.
+     * @param array $currentEnabledPaths Currently enabled paths.
+     * @return bool True if the path is enabled, false otherwise.
+     */
     private function isPathEnabled($path, $currentEnabledPaths = [])
     {
         return isset($currentEnabledPaths[$path]) || isset($this->enabledPaths[$path]);
     }
 
-    public function set($path_or_key, $value = '')
+    /**
+     * Sets a value for a given path or key, with optional parameters for text transformations.
+     *
+     * @param string $path_or_key The path or key to set.
+     * @param string $value The value to set.
+     * @param string $params Optional parameters for text transformations.
+     */
+    public function set($path_or_key, $value = '', $params = '')
     {
         $value = trim($value); // Trim spaces
+
+        // Process text transformations based on params
+        if ($params !== '') {
+            $value = $this->applyTextTransformations($value, $params);
+        }
+
         if (strpos($path_or_key, '/') !== false) {
             $path = $this->normalizePath($path_or_key);
             $parentPath = dirname($path);
@@ -160,6 +196,63 @@ class Template
         }
     }
 
+    /**
+     * Applies text transformations based on the provided parameters.
+     *
+     * @param string $text The text to transform.
+     * @param string $params The transformation parameters.
+     * @return string The transformed text.
+     */
+    private function applyTextTransformations($text, $params)
+    {
+        $options = explode(',', $params);
+        foreach ($options as $option) {
+            $option = trim($option);
+            switch ($option) {
+                case 'diacritics':
+                    $text = $this->removeDiacritics($text);
+                    break;
+                case 'upper':
+                    $text = mb_strtoupper($text);
+                    break;
+                case 'lower':
+                    $text = mb_strtolower($text);
+                    break;
+                case '1up':
+                    $text = mb_strtoupper(mb_substr($text, 0, 1)) . mb_substr($text, 1);
+                    break;
+                case '1upw':
+                    $text = mb_convert_case($text, MB_CASE_TITLE);
+                    break;
+            }
+        }
+        return $text;
+    }
+
+    /**
+     * Removes diacritics from the given text.
+     *
+     * @param string $text The text from which to remove diacritics.
+     * @return string The text without diacritics.
+     */
+    private function removeDiacritics($text)
+    {
+        $normalizeChars = array(
+            'á' => 'a', 'č' => 'c', 'ď' => 'd', 'é' => 'e', 'ě' => 'e',
+            'í' => 'i', 'ň' => 'n', 'ó' => 'o', 'ř' => 'r', 'š' => 's',
+            'ť' => 't', 'ú' => 'u', 'ů' => 'u', 'ý' => 'y', 'ž' => 'z',
+            'Á' => 'A', 'Č' => 'C', 'Ď' => 'D', 'É' => 'E', 'Ě' => 'E',
+            'Í' => 'I', 'Ň' => 'N', 'Ó' => 'O', 'Ř' => 'R', 'Š' => 'S',
+            'Ť' => 'T', 'Ú' => 'U', 'Ů' => 'U', 'Ý' => 'Y', 'Ž' => 'Z',
+        );
+        return strtr($text, $normalizeChars);
+    }
+
+    /**
+     * Sets multiple values from an associative array.
+     *
+     * @param array $array The associative array of key-value pairs.
+     */
     public function setArray($array)
     {
         foreach ($array as $key => $value) {
@@ -167,6 +260,11 @@ class Template
         }
     }
 
+    /**
+     * Starts an iteration block for the given path.
+     *
+     * @param string $path The path to iterate over.
+     */
     public function iterate($path)
     {
         $path = $this->normalizePath($path);
@@ -177,6 +275,12 @@ class Template
         $this->enablePath($path);
     }
 
+    /**
+     * Sets an array of data for iteration over a block.
+     *
+     * @param string $path The path of the block.
+     * @param array $array The array of data to iterate over.
+     */
     public function setIArray($path, $array)
     {
         $path = $this->normalizePath($path);
@@ -184,6 +288,12 @@ class Template
         $this->enablePath($path);
     }
 
+    /**
+     * Parses the template and returns the rendered output.
+     *
+     * @param string|null $path Optional path to parse a specific block.
+     * @return string The rendered output.
+     */
     public function parse($path = null)
     {
         $output = '';
@@ -203,6 +313,15 @@ class Template
         return trim($output); // Trim output
     }
 
+    /**
+     * Renders the template nodes recursively.
+     *
+     * @param array $nodes The nodes to render.
+     * @param string $currentPath The current path in the template tree.
+     * @param array $currentData The current data context.
+     * @param array $currentEnabledPaths The currently enabled paths.
+     * @return string The rendered output.
+     */
     private function render($nodes, $currentPath, $currentData, $currentEnabledPaths = [])
     {
         $output = '';
@@ -282,6 +401,14 @@ class Template
         return $output;
     }
 
+    /**
+     * Replaces placeholders with actual data.
+     *
+     * @param string $text The text containing placeholders.
+     * @param string $currentPath The current path in the template tree.
+     * @param array $currentData The current data context.
+     * @return string The text with placeholders replaced.
+     */
     private function replaceVariables($text, $currentPath, $currentData)
     {
         // Replace placeholders like {variable}
@@ -303,6 +430,12 @@ class Template
         }, $text);
     }
 
+    /**
+     * Processes text according to the settings (e.g., email, tel, url).
+     *
+     * @param string $text The text to process.
+     * @return string The processed text.
+     */
     private function processText($text)
     {
         if (empty($this->settings)) {
@@ -322,7 +455,8 @@ class Template
             $text = preg_replace_callback('/(\+?\d[\d\s\-]{7,}\d)/', function ($matches) {
                 $tel = $matches[1];
                 $telClean = preg_replace('/[\s\-]/', '', $tel);
-                return '<a href="tel:' . $telClean . '">' . $tel . '</a>';
+                $formattedTel = $this->formatPhoneNumber($telClean);
+                return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
             }, $text);
         }
 
@@ -341,12 +475,76 @@ class Template
         return $text;
     }
 
+    /**
+     * Formats phone numbers according to specified patterns.
+     *
+     * @param string $number The phone number to format.
+     * @return string The formatted phone number.
+     */
+    private function formatPhoneNumber($number)
+    {
+        // Remove all non-digit characters except '+'
+        $number = preg_replace('/[^\d+]/', '', $number);
+
+        // If number starts with '+', handle country code
+        $formatted = '';
+        if (strpos($number, '+') === 0) {
+            $formatted .= '+';
+            $number = substr($number, 1);
+        }
+
+        // Extract country code if present (assume 3 digits)
+        if ($formatted === '+') {
+            $countryCodeLength = 3; // Adjust as necessary
+            $countryCode = substr($number, 0, $countryCodeLength);
+            $formatted .= $countryCode . ' ';
+            $number = substr($number, $countryCodeLength);
+        }
+
+        // Now format the remaining number
+        $groups = [];
+
+        // For the first group, use 3 digits
+        if (strlen($number) >= 3) {
+            $groups[] = substr($number, 0, 3);
+            $number = substr($number, 3);
+        }
+
+        // Now split the rest into groups of two digits
+        while (strlen($number) > 0) {
+            if (strlen($number) >= 2) {
+                $groups[] = substr($number, 0, 2);
+                $number = substr($number, 2);
+            } else {
+                $groups[] = $number;
+                $number = '';
+            }
+        }
+
+        $formatted .= implode(' ', $groups);
+        return $formatted;
+    }
+
+    /**
+     * Finds nodes by path.
+     *
+     * @param array $nodes The nodes to search.
+     * @param string $path The path to find.
+     * @return array|null The found nodes or null.
+     */
     private function findNodeByPath($nodes, $path)
     {
         $segments = explode('/', trim($path, '/'));
         return $this->findNode($nodes, $segments);
     }
 
+    /**
+     * Recursively finds a node in the template tree.
+     *
+     * @param array $nodes The nodes to search.
+     * @param array $segments The path segments.
+     * @return array|null The found node or null.
+     */
     private function findNode($nodes, $segments)
     {
         if (empty($segments)) {
@@ -366,6 +564,9 @@ class Template
         return null;
     }
 
+    /**
+     * Closes the template and cleans up resources.
+     */
     public function close()
     {
         // Clean up resources
@@ -378,9 +579,12 @@ class Template
         $this->unrenderedPlaceholders = null;
     }
 
+    /**
+     * Outputs debug information about the template.
+     */
     public function debug()
     {
-        echo "\n---------------------- Debug Info ----------------------\n";
+        echo "<hr><pre>\n---------------------- Debug Info ----------------------\n";
         echo "Template Structure:\n";
         $this->printTree($this->tree);
         echo "\nList of <tmpl:xxx> Tags:\n";
@@ -401,9 +605,15 @@ class Template
         foreach (array_unique($this->unrenderedPlaceholders) as $placeholder) {
             echo "- $placeholder\n";
         }
-        echo "\n--------------------------------------------------------\n";
+        echo "\n--------------------------------------------------------\n</pre>";
     }
 
+    /**
+     * Prints the template tree structure.
+     *
+     * @param array $nodes The nodes to print.
+     * @param string $indent The indentation for formatting.
+     */
     private function printTree($nodes, $indent = '')
     {
         foreach ($nodes as $node) {
@@ -418,6 +628,13 @@ class Template
         }
     }
 
+    /**
+     * Collects all tag paths in the template.
+     *
+     * @param array $nodes The nodes to search.
+     * @param string $currentPath The current path.
+     * @return array The list of tag paths.
+     */
     private function collectTags($nodes, $currentPath = '')
     {
         $tags = [];
@@ -432,6 +649,13 @@ class Template
         return $tags;
     }
 
+    /**
+     * Collects all placeholders in the template.
+     *
+     * @param array $nodes The nodes to search.
+     * @param string $currentPath The current path.
+     * @return array The list of placeholders.
+     */
     private function collectPlaceholders($nodes, $currentPath = '')
     {
         $placeholders = [];
@@ -448,22 +672,32 @@ class Template
         return array_unique($placeholders);
     }
 
-    // New function: tmpl_get_tags
-
+    /**
+     * Returns a list of all tags in the template.
+     *
+     * @return array The list of tags.
+     */
     public function getTags()
     {
         return $this->collectTags($this->tree);
     }
 
-    // New function: tmpl_version
-
+    /**
+     * Returns the version of the templating system.
+     *
+     * @return string The version.
+     */
     public static function version()
     {
         return self::$version;
     }
 
-    // New function: tmpl_exists
-
+    /**
+     * Checks if a given path exists in the template.
+     *
+     * @param string $path The path to check.
+     * @return bool True if the path exists, false otherwise.
+     */
     public function exists($path)
     {
         $path = $this->normalizePath($path);
@@ -471,8 +705,13 @@ class Template
         return $node !== null;
     }
 
-    // New function: tmpl_include
-
+    /**
+     * Includes another template file at a specified path.
+     *
+     * @param string $path The path where to include the template.
+     * @param string $filename The filename of the template to include.
+     * @return bool True on success, false on failure.
+     */
     public function includeTemplate($path, $filename)
     {
         $path = $this->normalizePath($path);
@@ -497,12 +736,26 @@ class Template
         return false;
     }
 
+    /**
+     * Finds a node reference by path.
+     *
+     * @param array &$nodes The nodes to search.
+     * @param string $path The path to find.
+     * @return array|null The found node reference or null.
+     */
     private function &findNodeReferenceByPath(&$nodes, $path)
     {
         $segments = explode('/', trim($path, '/'));
         return $this->findNodeReference($nodes, $segments);
     }
 
+    /**
+     * Recursively finds a node reference in the template tree.
+     *
+     * @param array &$nodes The nodes to search.
+     * @param array $segments The path segments.
+     * @return array|null The found node reference or null.
+     */
     private function &findNodeReference(&$nodes, $segments)
     {
         $null = null;
@@ -523,7 +776,14 @@ class Template
         return $null;
     }
 
-    // Added new method setTag
+    /**
+     * Sets an HTML tag at a specified path.
+     *
+     * @param string $path_or_key The path or key where to set the tag.
+     * @param string $htmltag The HTML tag name.
+     * @param array $attributes The attributes for the tag.
+     * @param string $content The inner content of the tag.
+     */
     public function setTag($path_or_key, $htmltag, $attributes, $content = '')
     {
         $html = '<' . $htmltag;
@@ -542,7 +802,11 @@ class Template
         $this->set($path_or_key, $html);
     }
 
-    // Added method setting
+    /**
+     * Sets processing options for the template (e.g., email, tel, url).
+     *
+     * @param string $options Comma-separated list of options.
+     */
     public function setting($options)
     {
         $options = explode(',', $options);
@@ -557,11 +821,22 @@ class Template
 
 // Global functions
 
+/**
+ * Opens a template file and returns a Template object.
+ *
+ * @param string $filename The filename of the template.
+ * @return Template The Template object.
+ */
 function tmpl_open($filename)
 {
     return new Template($filename);
 }
 
+/**
+ * Closes the Template object.
+ *
+ * @param Template $t The Template object to close.
+ */
 function tmpl_close($t)
 {
     if ($t instanceof Template) {
@@ -569,6 +844,12 @@ function tmpl_close($t)
     }
 }
 
+/**
+ * Starts an iteration block in the template.
+ *
+ * @param Template $t The Template object.
+ * @param string $path The path to iterate over.
+ */
 function tmpl_iterate($t, $path)
 {
     if ($t instanceof Template) {
@@ -576,13 +857,27 @@ function tmpl_iterate($t, $path)
     }
 }
 
-function tmpl_set($t, $path_or_key, $value = '')
+/**
+ * Sets a value in the template with optional parameters for text transformations.
+ *
+ * @param Template $t The Template object.
+ * @param string $path_or_key The path or key to set.
+ * @param string $value The value to set.
+ * @param string $params Optional parameters for text transformations.
+ */
+function tmpl_set($t, $path_or_key, $value = '', $params = '')
 {
     if ($t instanceof Template) {
-        $t->set($path_or_key, $value);
+        $t->set($path_or_key, $value, $params);
     }
 }
 
+/**
+ * Sets multiple values in the template from an associative array.
+ *
+ * @param Template $t The Template object.
+ * @param array $array The associative array of key-value pairs.
+ */
 function tmpl_set_array($t, $array)
 {
     if ($t instanceof Template) {
@@ -590,6 +885,13 @@ function tmpl_set_array($t, $array)
     }
 }
 
+/**
+ * Sets an array of data for iteration over a block in the template.
+ *
+ * @param Template $t The Template object.
+ * @param string $path The path of the block.
+ * @param array $array The array of data to iterate over.
+ */
 function tmpl_set_iarray($t, $path, $array)
 {
     if ($t instanceof Template) {
@@ -597,6 +899,13 @@ function tmpl_set_iarray($t, $path, $array)
     }
 }
 
+/**
+ * Parses the template and returns the rendered output.
+ *
+ * @param Template $t The Template object.
+ * @param string|null $path Optional path to parse a specific block.
+ * @return string The rendered output.
+ */
 function tmpl_parse($t, $path = null)
 {
     if ($t instanceof Template) {
@@ -605,6 +914,11 @@ function tmpl_parse($t, $path = null)
     return '';
 }
 
+/**
+ * Outputs debug information about the template.
+ *
+ * @param Template $t The Template object.
+ */
 function tmpl_debug($t)
 {
     if ($t instanceof Template) {
@@ -614,6 +928,12 @@ function tmpl_debug($t)
 
 // New functions
 
+/**
+ * Returns a list of all tags in the template.
+ *
+ * @param Template $t The Template object.
+ * @return array The list of tags.
+ */
 function tmpl_get_tags($t)
 {
     if ($t instanceof Template) {
@@ -622,11 +942,23 @@ function tmpl_get_tags($t)
     return [];
 }
 
+/**
+ * Returns the version of the templating system.
+ *
+ * @return string The version.
+ */
 function tmpl_version()
 {
     return Template::version();
 }
 
+/**
+ * Checks if a given path exists in the template.
+ *
+ * @param Template $t The Template object.
+ * @param string $path The path to check.
+ * @return bool True if the path exists, false otherwise.
+ */
 function tmpl_exists($t, $path)
 {
     if ($t instanceof Template) {
@@ -635,6 +967,14 @@ function tmpl_exists($t, $path)
     return false;
 }
 
+/**
+ * Includes another template file at a specified path.
+ *
+ * @param Template $t The Template object.
+ * @param string $path The path where to include the template.
+ * @param string $filename The filename of the template to include.
+ * @return bool True on success, false on failure.
+ */
 function tmpl_include($t, $path, $filename)
 {
     if ($t instanceof Template) {
@@ -643,6 +983,15 @@ function tmpl_include($t, $path, $filename)
     return false;
 }
 
+/**
+ * Sets an HTML tag at a specified path in the template.
+ *
+ * @param Template $t The Template object.
+ * @param string $path_or_key The path or key where to set the tag.
+ * @param string $htmltag The HTML tag name.
+ * @param array $attributes The attributes for the tag.
+ * @param string $content The inner content of the tag.
+ */
 function tmpl_set_tag($t, $path_or_key, $htmltag, $attributes, $content = '')
 {
     if ($t instanceof Template) {
@@ -650,6 +999,12 @@ function tmpl_set_tag($t, $path_or_key, $htmltag, $attributes, $content = '')
     }
 }
 
+/**
+ * Sets processing options for the template (e.g., email, tel, url).
+ *
+ * @param Template $t The Template object.
+ * @param string $options Comma-separated list of options.
+ */
 function tmpl_setting($t, $options)
 {
     if ($t instanceof Template) {
