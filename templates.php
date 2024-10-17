@@ -1,10 +1,9 @@
 <?php
 /**
- * templates.php - Simple tmpl_ System
- * Version: 1.3
- * Year: 2023
- * Author: PB
- * Email: pavel.bartos.pb@gmail.com
+ * templates.php - Jednoduchý templating systém
+ * Verze: 1.4
+ * Rok: 2023
+ * Autor: PB
  *
  * Tento soubor implementuje jednoduchý templating systém pro práci s HTML šablonami s vlastními tagy a proměnnými.
  * Systém umožňuje otevírání šablon, nastavování proměnných, iteraci přes bloky a parsování finálního výstupu.
@@ -24,7 +23,7 @@
  * - tmpl_exists($t, $path)
  * - tmpl_set_tag($t, $path, $htmltag, $attributes, $content = '')
  */
- 
+
 class Template
 {
     public $content;
@@ -34,7 +33,9 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '1.3';
+    public static $version = '1.4';
+
+    private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
     public function __construct($filename = null, $content = null)
     {
@@ -115,7 +116,16 @@ class Template
         $value = trim($value); // Ořezání mezer
         if (strpos($path_or_key, '/') !== false) {
             $path = $this->normalizePath($path_or_key);
-            $this->data[$path] = $value;
+            $parentPath = dirname($path);
+            $key = basename($path);
+
+            // Pokud je cesta pod iterací, uložíme data podle indexu iterace
+            if (isset($this->iterations[$parentPath])) {
+                $index = $this->iterations[$parentPath] - 1; // Index aktuální iterace
+                $this->data[$parentPath][$index][$key] = $value;
+            } else {
+                $this->data[$path] = $value;
+            }
             $this->enablePath($path);
         } else {
             $this->data[$path_or_key] = $value;
@@ -150,14 +160,14 @@ class Template
     {
         $output = '';
         if ($path === null) {
-            $output = $this->render($this->tree, '');
+            $output = $this->render($this->tree, '', []);
         } else {
             $path = $this->normalizePath($path);
             $nodes = $this->findNodeByPath($this->tree, $path);
             if ($nodes !== null) {
                 // Dočasně povolí tuto cestu pro renderování
                 $this->enabledPaths[$path] = true;
-                $output = $this->render($nodes, $path);
+                $output = $this->render($nodes, $path, []);
             } else {
                 $output = '';
             }
@@ -165,13 +175,13 @@ class Template
         return trim($output); // Ořezání mezer ve výstupu
     }
 
-    private function render($nodes, $currentPath)
+    private function render($nodes, $currentPath, $currentData)
     {
         $output = '';
         foreach ($nodes as $node) {
             if (is_string($node)) {
                 // Nahrazení proměnných v řetězci
-                $replaced = $this->replaceVariables($node, $currentPath);
+                $replaced = $this->replaceVariables($node, $currentPath, $currentData);
                 if (trim($replaced) !== '') {
                     $output .= $replaced;
                 }
@@ -184,23 +194,31 @@ class Template
                         // Iterace přes pole
                         $array = $this->data[$path]['_iarray'];
                         foreach ($array as $item) {
-                            // Nastavení dat položky
-                            $prevData = $this->data;
-                            foreach ($item as $key => $value) {
-                                $this->data[$path . '/' . $key] = trim($value);
-                            }
-                            $output .= $this->render($node['content'], $path);
-                            $this->data = $prevData;
+                            // Sloučení aktuálních dat s daty položky
+                            $newData = array_merge($currentData, $item);
+                            $output .= $this->render($node['content'], $path, $newData);
                         }
                     } elseif (isset($this->iterations[$path])) {
                         // Iterace na základě počtu volání iterate
                         $iterations = $this->iterations[$path];
                         for ($i = 0; $i < $iterations; $i++) {
-                            $output .= $this->render($node['content'], $path);
+                            // Sloučení aktuálních dat s daty pro tuto iteraci
+                            if (isset($this->data[$path][$i])) {
+                                $newData = array_merge($currentData, $this->data[$path][$i]);
+                            } else {
+                                $newData = $currentData;
+                            }
+                            $output .= $this->render($node['content'], $path, $newData);
                         }
                     } else {
                         // Renderuje jednou, pokud bylo nastaveno přes tmpl_set
-                        $output .= $this->render($node['content'], $path);
+                        // Sloučení aktuálních dat s daty pro tuto cestu
+                        if (isset($this->data[$path])) {
+                            $newData = array_merge($currentData, $this->data[$path]);
+                        } else {
+                            $newData = $currentData;
+                        }
+                        $output .= $this->render($node['content'], $path, $newData);
                     }
                 } else {
                     // Shromažďování nezobrazených tagů
@@ -211,13 +229,15 @@ class Template
         return $output;
     }
 
-    private function replaceVariables($text, $currentPath)
+    private function replaceVariables($text, $currentPath, $currentData)
     {
         // Nahrazení placeholderů jako {variable}
-        return preg_replace_callback('/\{([a-zA-Z0-9_]+)\}/', function ($matches) use ($currentPath) {
+        return preg_replace_callback('/\{([a-zA-Z0-9_]+)\}/', function ($matches) use ($currentPath, $currentData) {
             $key = $matches[1];
             $pathKey = $this->normalizePath($currentPath . '/' . $key);
-            if (isset($this->data[$pathKey])) {
+            if (isset($currentData[$key])) {
+                return $currentData[$key];
+            } elseif (isset($this->data[$pathKey])) {
                 return $this->data[$pathKey];
             } elseif (isset($this->data[$key])) {
                 return $this->data[$key];
@@ -269,7 +289,6 @@ class Template
 
     public function debug()
     {
-        echo "<hr><pre>";
         echo "\n---------------------- Debug Info ----------------------\n";
         echo "Struktura šablony:\n";
         $this->printTree($this->tree);
@@ -292,7 +311,6 @@ class Template
             echo "- $placeholder\n";
         }
         echo "\n--------------------------------------------------------\n";
-        echo "</pre>";
     }
 
     private function printTree($nodes, $indent = '')
@@ -414,8 +432,6 @@ class Template
         return $null;
     }
 
-private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
-
     // Přidání nové metody setTag
     public function setTag($path_or_key, $htmltag, $attributes, $content = '')
     {
@@ -434,10 +450,6 @@ private $selfClosingTags = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', '
         }
         $this->set($path_or_key, $html);
     }
-
-
-
-
 }
 
 // Globální funkce
@@ -497,6 +509,7 @@ function tmpl_debug($t)
     }
 }
 
+// Nové funkce
 
 function tmpl_get_tags($t)
 {
