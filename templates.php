@@ -1,7 +1,7 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 2.2
+ * Version: 2.3
  * Release Date: 10/2024
  * Author: PB
  *
@@ -18,6 +18,10 @@
  * - `num_us`: Formats a number to the US format (e.g., `12,678.00`).
  * - `date2cz`: Converts a date from `YYYY-MM-DD` to `DD.MM.YYYY`.
  * - `date2us`: Converts a date from `DD.MM.YYYY` to `YYYY-MM-DD`.
+ * - `tel`: Formats phone numbers.
+ * - `email`: Converts emails to mailto links.
+ * - `url`: Converts URLs to clickable links.
+ * - `tel_link`: Formats phone numbers and makes them clickable links.
  *
  * Functions:
  * - tmpl_open($filename)
@@ -46,7 +50,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '2.1';
+    public static $version = '2.3';
 
     private $selfClosingTags = [
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img',
@@ -188,7 +192,12 @@ class Template
                     $this->data[$parentPath][$index] = [];
                 }
 
-                $this->data[$parentPath][$index][$key] = $value;
+                if ($key === '') {
+                    // If key is empty, store the value directly
+                    $this->data[$parentPath][$index] = $value;
+                } else {
+                    $this->data[$parentPath][$index][$key] = $value;
+                }
 
                 // Enable path for this iteration
                 if (!isset($this->data[$parentPath][$index]['_enabledPaths'])) {
@@ -203,8 +212,8 @@ class Template
                 }
             } else {
                 if ($key === '') {
-                    // If key is empty, we don't store a string in place of an array
-                    $this->data[$path] = [];
+                    // If key is empty, store the value directly
+                    $this->data[$path] = $value;
                 } else {
                     if (!isset($this->data[$path]) ||
                         !is_array($this->data[$path])) {
@@ -259,6 +268,18 @@ class Template
                     break;
                 case 'date2us':
                     $text = $this->formatDateToUs($text);
+                    break;
+                case 'tel':
+                    $text = $this->transformTel($text);
+                    break;
+                case 'email':
+                    $text = $this->transformEmail($text);
+                    break;
+                case 'url':
+                    $text = $this->transformUrl($text);
+                    break;
+                case 'tel_link':
+                    $text = $this->transformTelLink($text);
                     break;
             }
         }
@@ -342,6 +363,112 @@ class Template
             }
         }
         return $date; // Return original if conversion fails
+    }
+
+    /**
+     * Transforms phone numbers in the text.
+     *
+     * @param string $text The text containing phone numbers.
+     * @return string The text with phone numbers transformed.
+     */
+    private function transformTel($text)
+    {
+        // Remove all non-digit and non-plus characters
+        $telClean = preg_replace('/[^\d+]/', '', $text);
+
+        // Format the phone number
+        $formattedTel = $this->formatPhoneNumberForTransform($telClean);
+
+        return $formattedTel;
+    }
+
+    /**
+     * Transforms email addresses in the text to mailto links.
+     *
+     * @param string $text The text containing email addresses.
+     * @return string The text with email addresses transformed.
+     */
+    private function transformEmail($text)
+    {
+        return preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
+            $email = $matches[1];
+            return '<a href="mailto:' . $email . '">' . $email . '</a>';
+        }, $text);
+    }
+
+    /**
+     * Transforms URLs in the text to clickable links.
+     *
+     * @param string $text The text containing URLs.
+     * @return string The text with URLs transformed.
+     */
+    private function transformUrl($text)
+    {
+        return preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
+            $url = $matches[1];
+            $href = $url;
+            if (strpos($url, 'http') !== 0) {
+                $href = 'http://' . $url;
+            }
+            return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
+        }, $text);
+    }
+
+    /**
+     * Transforms phone numbers into clickable links with formatting.
+     *
+     * @param string $text The text containing phone numbers.
+     * @return string The text with phone numbers transformed into links.
+     */
+    private function transformTelLink($text)
+    {
+        // Remove all non-digit and non-plus characters
+        $telClean = preg_replace('/[^\d+]/', '', $text);
+
+        // Format the phone number
+        $formattedTel = $this->formatPhoneNumberForTransform($telClean);
+
+        // Return the anchor tag
+        return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
+    }
+
+    /**
+     * Formats phone numbers according to specified patterns for transformation.
+     *
+     * @param string $number The phone number to format.
+     * @return string The formatted phone number.
+     */
+    private function formatPhoneNumberForTransform($number)
+    {
+        // Remove all non-digit and non-plus characters
+        $number = preg_replace('/[^\d+]/', '', $number);
+        $formatted = '';
+
+        if (strpos($number, '+') === 0) {
+            // Number starts with '+', split into '+XXX XXX XX XX XX'
+            // Remove '+', get the digits
+            $digits = substr($number, 1);
+
+            // Country code: take up to 3 digits
+            $countryCode = substr($digits, 0, 3);
+            $position = 3;
+
+            // Next group: 3 digits
+            $group1 = substr($digits, $position, 3);
+            $position += 3;
+
+            // Remaining digits, group into pairs
+            $remainingDigits = substr($digits, $position);
+            $pairs = str_split($remainingDigits, 2);
+
+            $formatted = '+' . $countryCode . ' ' . $group1 . ' ' . implode(' ', $pairs);
+        } else {
+            // Number without '+', split into groups of three: 'XXX XXX XXX'
+            $groups = str_split($number, 3);
+            $formatted = implode(' ', $groups);
+        }
+
+        return $formatted;
     }
 
     /**
@@ -555,57 +682,57 @@ class Template
      * @param string $text The text to process.
      * @return string The processed text.
      */
-private function processText($text)
-{
-    if (empty($this->settings)) {
+    private function processText($text)
+    {
+        if (empty($this->settings)) {
+            return $text;
+        }
+
+        // Process email addresses
+        if (isset($this->settings['email'])) {
+            $text = preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
+                $email = $matches[1];
+                return '<a href="mailto:' . $email . '">' . $email . '</a>';
+            }, $text);
+        }
+
+        // Process phone numbers
+        if (isset($this->settings['tel'])) {
+            $text = preg_replace_callback(
+                '/\b(\+?\d[\d\s]{6,}\d)\b/',
+                function ($matches) {
+                    $tel = $matches[1];
+
+                    // Check if the matched string resembles a date
+                    if (preg_match('/^\d{4}-\d{1,2}-\d{1,2}$/', $tel) ||
+                        preg_match('/^\d{4}\.\d{1,2}\.\d{1,2}$/', $tel) ||
+                        preg_match('/^\d{1,2}\.\d{1,2}\.\d{4}$/', $tel)) {
+                        // It's a date, return as is
+                        return $tel;
+                    }
+
+                    $telClean = preg_replace('/[\s]/', '', $tel);
+                    $formattedTel = $this->formatPhoneNumber($telClean);
+                    return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
+                },
+                $text
+            );
+        }
+
+        // Process URLs
+        if (isset($this->settings['url'])) {
+            $text = preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
+                $url = $matches[1];
+                $href = $url;
+                if (strpos($url, 'http') !== 0) {
+                    $href = 'http://' . $url;
+                }
+                return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
+            }, $text);
+        }
+
         return $text;
     }
-
-    // Process email addresses
-    if (isset($this->settings['email'])) {
-        $text = preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
-            $email = $matches[1];
-            return '<a href="mailto:' . $email . '">' . $email . '</a>';
-        }, $text);
-    }
-
-    // Process phone numbers
-    if (isset($this->settings['tel'])) {
-        $text = preg_replace_callback(
-            '/\b(\+?\d[\d\s]{6,}\d)\b/',
-            function ($matches) {
-                $tel = $matches[1];
-
-                // Check if the matched string resembles a date
-                if (preg_match('/^\d{4}-\d{1,2}-\d{1,2}$/', $tel) ||
-                    preg_match('/^\d{4}\.\d{1,2}\.\d{1,2}$/', $tel) ||
-                    preg_match('/^\d{1,2}\.\d{1,2}\.\d{4}$/', $tel)) {
-                    // It's a date, return as is
-                    return $tel;
-                }
-
-                $telClean = preg_replace('/[\s]/', '', $tel);
-                $formattedTel = $this->formatPhoneNumber($telClean);
-                return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
-            },
-            $text
-        );
-    }
-
-    // Process URLs
-    if (isset($this->settings['url'])) {
-        $text = preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
-            $url = $matches[1];
-            $href = $url;
-            if (strpos($url, 'http') !== 0) {
-                $href = 'http://' . $url;
-            }
-            return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
-        }, $text);
-    }
-
-    return $text;
-}
 
     /**
      * Formats phone numbers according to specified patterns.
@@ -613,39 +740,64 @@ private function processText($text)
      * @param string $number The phone number to format.
      * @return string The formatted phone number.
      */
+
     private function formatPhoneNumber($number)
     {
+        // Odstranění všech znaků kromě číslic a plusu
         $number = preg_replace('/[^\d+]/', '', $number);
         $formatted = '';
+
+        // Kontrola, zda číslo začíná znakem '+'
         if (strpos($number, '+') === 0) {
-            $formatted .= '+';
-            $number = substr($number, 1);
+            // Použijeme regulární výraz pro extrakci mezinárodní předvolby (1-3 číslice)
+            if (preg_match('/^\+(\d{1,3})(\d+)/', $number, $matches)) {
+                $countryCode = $matches[1];
+                $number = $matches[2];
+                $formatted .= '+' . $countryCode . ' ';
+            } else {
+                // Neplatné číslo
+                return $number;
+            }
         }
 
-        if ($formatted === '+') {
-            $countryCodeLength = 3;
-            $countryCode = substr($number, 0, $countryCodeLength);
-            $formatted .= $countryCode . ' ';
-            $number = substr($number, $countryCodeLength);
-        }
-
+        // Nyní $number obsahuje číslo bez mezinárodní předvolby
+        $firstDigit = substr($number, 0, 1);
+        $numberLength = strlen($number);
         $groups = [];
 
-        if (strlen($number) >= 3) {
-            $groups[] = substr($number, 0, 3);
-            $number = substr($number, 3);
+        if ($firstDigit == '7') {
+            // Skupinování: 3 2 2 2
+            $groupSizes = [3, 2, 2, 2];
+        } elseif ($firstDigit == '6') {
+            // Skupinování: 2 2 2 2 1
+            $groupSizes = [2, 2, 2, 2, 1];
+        } else {
+            // Defaultní skupinování po třech číslicích
+            $groups = str_split($number, 3);
+            $formatted .= implode(' ', $groups);
+            return $formatted;
         }
 
-        while (strlen($number) > 0) {
-            if (strlen($number) >= 2) {
-                $groups[] = substr($number, 0, 2);
-                $number = substr($number, 2);
+        // Úprava poslední skupiny, pokud je potřeba
+        $sumGroupSizes = array_sum($groupSizes);
+        if ($sumGroupSizes > strlen($number)) {
+            $groupSizes[count($groupSizes) - 1] -= $sumGroupSizes - strlen($number);
+        } elseif ($sumGroupSizes < strlen($number)) {
+            $groupSizes[count($groupSizes) - 1] += strlen($number) - $sumGroupSizes;
+        }
+
+        // Aplikace skupinování
+        foreach ($groupSizes as $size) {
+            if (strlen($number) >= $size) {
+                $groups[] = substr($number, 0, $size);
+                $number = substr($number, $size);
             } else {
                 $groups[] = $number;
                 $number = '';
             }
         }
 
+        // Spojení skupin mezerami
         $formatted .= implode(' ', $groups);
         return $formatted;
     }
