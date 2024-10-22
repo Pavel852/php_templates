@@ -1,7 +1,7 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 2.5
+ * Version: 2.6
  * Release Date: 10/2024
  * Author: PB
  *
@@ -22,6 +22,11 @@
  * - `email`: Converts emails to mailto links.
  * - `url`: Converts URLs to clickable links.
  * - `tel_link`: Formats phone numbers and makes them clickable links.
+ * - `urlencode`: URL-encodes the text.
+ * - `md5`: Calculates the MD5 hash of the text.
+ * - `base64`: Encodes the text in Base64.
+ * - `bin2hex`: Converts binary data to its hexadecimal representation.
+ * - `hex2bin`: Converts hexadecimal representation back to binary data.
  *
  * Functions:
  * - tmpl_open($filename)
@@ -50,7 +55,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '2.5';
+    public static $version = '2.6';
 
     private $selfClosingTags = [
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img',
@@ -280,6 +285,21 @@ class Template
                     break;
                 case 'tel_link':
                     $text = $this->transformTelLink($text);
+                    break;
+                case 'urlencode':
+                    $text = urlencode($text);
+                    break;
+                case 'md5':
+                    $text = md5($text);
+                    break;
+                case 'base64':
+                    $text = base64_encode($text);
+                    break;
+                case 'bin2hex':
+                    $text = bin2hex($text);
+                    break;
+                case 'hex2bin':
+                    $text = hex2bin($text);
                     break;
             }
         }
