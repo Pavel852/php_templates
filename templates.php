@@ -1,7 +1,7 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 2.3
+ * Version: 2.5
  * Release Date: 10/2024
  * Author: PB
  *
@@ -50,7 +50,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '2.3';
+    public static $version = '2.5';
 
     private $selfClosingTags = [
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img',
