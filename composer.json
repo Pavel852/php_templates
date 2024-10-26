@@ -6,15 +6,6 @@
     "autoload": {
         "files": ["templates.php"]
     },
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/Pavel852/php_templates"
-        }
-    ],
-    "require": {
-        "pavel852/php-templates": "dev-main"
-    },
     "authors": [
         {
             "name": "Pavel Bartos",
