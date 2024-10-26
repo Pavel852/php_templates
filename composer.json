@@ -6,9 +6,6 @@
     "autoload": {
         "files": ["templates.php"]
     },
-    "require": {
-        "pavel852/php-templates": "dev-main"
-    },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "authors": [
