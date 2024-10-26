@@ -3,6 +3,8 @@
     "description": "Simple templating system for PHP.",
     "type": "library",
     "license": "MIT",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "autoload": {
         "files": ["templates.php"]
     },
