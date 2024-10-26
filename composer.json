@@ -13,5 +13,11 @@
             "email": "pavel.bartos.pb@gmail.com",
             "orcid": "https://orcid.org/0009-0001-3558-4312"
         }
-    ]
+    ],
+    "support": {
+        "source": "https://github.com/Pavel852/php_templates",
+        "issues": "https://github.com/Pavel852/php_templates/issues",
+        "license": "https://github.com/Pavel852/php_templates/blob/main/LICENSE",
+        "docs": "https://github.com/Pavel852/php_templates/blob/main/readme_en.md"
+    }
 }
