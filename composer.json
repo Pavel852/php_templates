@@ -1,0 +1,17 @@
+{
+    "name": "pavel852/php-templates",
+    "description": "Simple templating system for PHP.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "files": ["templates.php"]
+    },
+    "require": {},
+    "authors": [
+        {
+            "name": "Pavel Bartos",
+            "email": "pavel.bartos.pb@gmail.com",
+            "orcid": "https://orcid.org/0009-0001-3558-4312"
+        }
+    ]
+}
