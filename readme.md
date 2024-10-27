@@ -142,3 +142,16 @@ tmpl_close($t);
 ## Autor a Kontakt
 - **Autor**: PB
 - **Email**: pavel.bartos.pb@gmail.com
+- https://packagist.org/packages/pavel852/php-templates
+
+## Composer Setup
+
+1. **Updating Dependencies**: Run `composer update` to update all dependencies as per the project's `composer.json` file.
+2. **Installing the New Package**: Run `composer require pavel852/php-templates` to install the `pavel852/php-templates` package. This package allows for handling HTML templates with ease.
+
+## Usage Instructions
+
+To utilize the package in your project, follow these steps:
+- Add all dependencies by including `require 'vendor/autoload.php';` at the beginning of your PHP file.
+- Import the package with `use pavel852/php-templates;` to access its functionalities.
+- You can open a template using `$t = tmpl_open('xxx.html');`, where `xxx.html` is the HTML template file you want to work with.
