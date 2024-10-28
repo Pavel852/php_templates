@@ -16,7 +16,7 @@
     },
     "require": {
         "php": ">=7.0", 
-        "pavel852/latex": ">=2.0"
+        "pavel852/latex": ">=3.0"
     },
 
     "minimum-stability": "dev",
