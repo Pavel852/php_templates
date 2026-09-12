@@ -1,7 +1,8 @@
 <?php
 /**
  * templates.php - Simple Templating System
- * Version: 2.6
+ * Version: 2.6.1
+ * Bugfix Date: 12/09/2026
  * Release Date: 10/2024
  * Author: PB
  *
@@ -55,7 +56,7 @@ class Template
     public $enabledPaths;
     public $unrenderedTags;
     public $unrenderedPlaceholders;
-    public static $version = '2.6';
+    public static $version = '2.6.1';
 
     private $selfClosingTags = [
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img',
@@ -68,7 +69,7 @@ class Template
         if ($filename) {
             $this->content = file_get_contents($filename);
         } else {
-            $this->content = $content;
+            $this->content = $content === null ? '' : $content;
         }
         $this->tree = $this->parseTemplate($this->content);
         $this->data = [];
@@ -87,39 +88,50 @@ class Template
      */
     private function parseTemplate($content)
     {
-        $pattern = '/<tmpl:([a-zA-Z0-9_]+)>(.*?)<\/tmpl:\\1>/s';
+        $pattern = '/<tmpl:([a-zA-Z0-9_]+)>/';
         $tree = [];
         $offset = 0;
-        while (preg_match(
-            $pattern,
-            $content,
-            $matches,
-            PREG_OFFSET_CAPTURE,
-            $offset
-        )) {
+        $searchOffset = 0;
+        while (preg_match($pattern, $content, $matches, PREG_OFFSET_CAPTURE, $searchOffset)) {
             $tag = $matches[1][0];
-            $innerContent = $matches[2][0];
             $startPos = $matches[0][1];
-            $endPos = $startPos + strlen($matches[0][0]);
+            $innerStart = $startPos + strlen($matches[0][0]);
+            $cursor = $innerStart;
+            $depth = 1;
 
-            $before = substr($content, $offset, $startPos - $offset);
-            if (trim($before) !== '') {
-                $tree[] = $before;
+            // Match the closing tag at the same nesting depth, including repeated names.
+            $boundary = '~</?tmpl:' . preg_quote($tag, '~') . '>~';
+            while (preg_match($boundary, $content, $closing, PREG_OFFSET_CAPTURE, $cursor)) {
+                $token = $closing[0][0];
+                $cursor = $closing[0][1] + strlen($token);
+                $depth += strpos($token, '</') === 0 ? -1 : 1;
+                if ($depth === 0) {
+                    break;
+                }
+            }
+            if ($depth !== 0) {
+                // Keep unmatched markup as text and continue looking for valid blocks.
+                $searchOffset = $innerStart;
+                continue;
             }
 
-            $node = [
+            $innerContent = substr($content, $innerStart, $closing[0][1] - $innerStart);
+            $endPos = $cursor;
+            $before = substr($content, $offset, $startPos - $offset);
+            if ($before !== '') {
+                $tree[] = $before;
+            }
+            $tree[] = [
                 'tag' => $tag,
                 'content' => $this->parseTemplate($innerContent),
                 'startPos' => $startPos,
                 'endPos' => $endPos,
             ];
-            $tree[] = $node;
-
             $offset = $endPos;
+            $searchOffset = $offset;
         }
-
         $remaining = substr($content, $offset);
-        if (trim($remaining) !== '') {
+        if ($remaining !== '') {
             $tree[] = $remaining;
         }
 
@@ -216,16 +228,11 @@ class Template
                         [$accumPath] = true;
                 }
             } else {
-                if ($key === '') {
-                    // If key is empty, store the value directly
-                    $this->data[$path] = $value;
-                } else {
-                    if (!isset($this->data[$path]) ||
-                        !is_array($this->data[$path])) {
-                        $this->data[$path] = [];
-                    }
-                    $this->data[$path][$key] = $value;
+                // A variable belongs to its parent block, not to an array at its own path.
+                if (!isset($this->data[$parentPath]) || !is_array($this->data[$parentPath])) {
+                    $this->data[$parentPath] = [];
                 }
+                $this->data[$parentPath][$key] = $value;
                 $this->enablePath($path);
             }
         } else {
@@ -299,7 +306,9 @@ class Template
                     $text = bin2hex($text);
                     break;
                 case 'hex2bin':
-                    $text = hex2bin($text);
+                    if (strlen($text) % 2 === 0 && preg_match('/\A[0-9a-fA-F]*\z/', $text)) {
+                        $text = hex2bin($text);
+                    }
                     break;
             }
         }
@@ -378,7 +387,10 @@ class Template
         $dateParts = preg_split('/[.\-\/]/', $date);
         if (count($dateParts) === 3) {
             list($day, $month, $year) = $dateParts;
-            if (checkdate($month, $day, $year)) {
+            if (preg_match('/\A[0-9]+\z/', $day) &&
+                preg_match('/\A[0-9]+\z/', $month) &&
+                preg_match('/\A[0-9]+\z/', $year) &&
+                checkdate((int) $month, (int) $day, (int) $year)) {
                 return sprintf('%04d-%02d-%02d', $year, $month, $day);
             }
         }
@@ -410,10 +422,7 @@ class Template
      */
     private function transformEmail($text)
     {
-        return preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
-            $email = $matches[1];
-            return '<a href="mailto:' . $email . '">' . $email . '</a>';
-        }, $text);
+        return $this->linkText($text, ['email' => true]);
     }
 
     /**
@@ -424,14 +433,7 @@ class Template
      */
     private function transformUrl($text)
     {
-        return preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
-            $url = $matches[1];
-            $href = $url;
-            if (strpos($url, 'http') !== 0) {
-                $href = 'http://' . $url;
-            }
-            return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
-        }, $text);
+        return $this->linkText($text, ['url' => true]);
     }
 
     /**
@@ -539,21 +541,32 @@ class Template
      */
     public function parse($path = null)
     {
-        $output = '';
-        if ($path === null) {
-            $output = $this->render($this->tree, '', [], []);
-        } else {
+        $this->unrenderedTags = [];
+        $this->unrenderedPlaceholders = [];
+        $nodes = $this->tree;
+        $enabled = [];
+        if ($path !== null && $this->normalizePath($path) !== '/') {
             $path = $this->normalizePath($path);
             $nodes = $this->findNodeByPath($this->tree, $path);
-            if ($nodes !== null) {
-                // Temporarily enable this path for rendering
-                $this->enabledPaths[$path] = true;
-                $output = $this->render($nodes, $path, [], []);
-            } else {
-                $output = '';
+            if ($nodes === null) {
+                return '';
+            }
+            // Keep ancestor contexts and iterations, but omit text outside the selected block.
+            $segments = explode('/', trim($path, '/'));
+            $prefix = '';
+            foreach ($segments as $segment) {
+                $prefix .= '/' . $segment;
+                $enabled[$prefix] = true;
+            }
+            foreach (array_reverse($segments) as $segment) {
+                $nodes = [['tag' => $segment, 'content' => $nodes]];
             }
         }
-        return trim($output); // Trim output
+        $rootData = isset($this->data['/']) && is_array($this->data['/'])
+            ? $this->data['/'] : [];
+        $output = $this->render($nodes, '', $rootData, $enabled);
+        // Process complete HTML once, so links spanning template blocks stay intact.
+        return trim($this->processText($output));
     }
 
     /**
@@ -579,10 +592,7 @@ class Template
                     $currentPath,
                     $currentData
                 );
-                $processed = $this->processText($replaced);
-                if (trim($processed) !== '') {
-                    $output .= $processed;
-                }
+                $output .= $replaced;
             } elseif (is_array($node)) {
                 $tag = $node['tag'];
                 $path = $this->normalizePath($currentPath . '/' . $tag);
@@ -683,7 +693,7 @@ class Template
                 $pathKey = $this->normalizePath($currentPath . '/' . $key);
                 if (isset($currentData[$key])) {
                     return $currentData[$key];
-                } elseif (isset($this->data[$pathKey])) {
+                } elseif (isset($this->data[$pathKey]) && !is_array($this->data[$pathKey])) {
                     return $this->data[$pathKey];
                 } elseif (isset($this->data[$key])) {
                     return $this->data[$key];
@@ -704,54 +714,52 @@ class Template
      */
     private function processText($text)
     {
-        if (empty($this->settings)) {
+        return $this->linkText($text, $this->settings);
+    }
+
+    /**
+     * Generates links only in text, preserving HTML attributes, existing links and raw text.
+     */
+    private function linkText($text, $options)
+    {
+        if (empty($options)) {
             return $text;
         }
+        // Quoted attribute values may contain >. Skip entire anchors and raw-text elements.
+        $attributes = '(?:[^<>"\x27]++|"[^"]*"|\x27[^\x27]*\x27)*+';
+        $protected = '<!--.*?(?:-->|$)|<!\[CDATA\[.*?(?:\]\]>|$)|'
+            . '<(?<element>a|script|style|textarea)(?=[\s/>])' . $attributes . '>'
+            . '.*?(?:</\k<element>\s*>|$)|<' . $attributes . '>';
+        $pattern = '~(?:' . $protected . ')(*SKIP)(*F)'
+            . '|(?<url>https?://[^\s<>"\x27]+|www\.[^\s<>"\x27]+)'
+            . '|(?<email>(?<![a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}\b)'
+            . '|(?<tel>(?<![\w+])\+?\d[\d \t]{6,}\d(?!\w))~is';
 
-        // Process email addresses
-        if (isset($this->settings['email'])) {
-            $text = preg_replace_callback('/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/', function ($matches) {
-                $email = $matches[1];
-                return '<a href="mailto:' . $email . '">' . $email . '</a>';
-            }, $text);
-        }
-
-        // Process phone numbers
-        if (isset($this->settings['tel'])) {
-            $text = preg_replace_callback(
-                '/\b(\+?\d[\d\s]{6,}\d)\b/',
-                function ($matches) {
-                    $tel = $matches[1];
-
-                    // Check if the matched string resembles a date
-                    if (preg_match('/^\d{4}-\d{1,2}-\d{1,2}$/', $tel) ||
-                        preg_match('/^\d{4}\.\d{1,2}\.\d{1,2}$/', $tel) ||
-                        preg_match('/^\d{1,2}\.\d{1,2}\.\d{4}$/', $tel)) {
-                        // It's a date, return as is
-                        return $tel;
-                    }
-
-                    $telClean = preg_replace('/[\s]/', '', $tel);
-                    $formattedTel = $this->formatPhoneNumber($telClean);
-                    return '<a href="tel:' . $telClean . '">' . $formattedTel . '</a>';
-                },
-                $text
-            );
-        }
-
-        // Process URLs
-        if (isset($this->settings['url'])) {
-            $text = preg_replace_callback('/(https?:\/\/[^\s<]+|www\.[^\s<]+)/', function ($matches) {
-                $url = $matches[1];
-                $href = $url;
-                if (strpos($url, 'http') !== 0) {
-                    $href = 'http://' . $url;
+        return preg_replace_callback($pattern, function ($matches) use ($options) {
+            // Match URLs first even when disabled, so other transformations cannot break them.
+            if (isset($matches['url']) && $matches['url'] !== '') {
+                if (!isset($options['url'])) {
+                    return $matches[0];
                 }
-                return '<a target="_blank" href="' . $href . '">' . $url . '</a>';
-            }, $text);
-        }
-
-        return $text;
+                $url = $matches['url'];
+                $href = preg_match('~^https?://~i', $url) ? $url : 'http://' . $url;
+                $href = htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', false);
+                $label = htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', false);
+                return '<a target="_blank" href="' . $href . '">' . $label . '</a>';
+            }
+            if (isset($matches['email']) && $matches['email'] !== '') {
+                if (!isset($options['email'])) {
+                    return $matches[0];
+                }
+                $email = $matches['email'];
+                return '<a href="mailto:' . $email . '">' . $email . '</a>';
+            }
+            if (isset($matches['tel']) && $matches['tel'] !== '' && isset($options['tel'])) {
+                $tel = preg_replace('/\s+/', '', $matches['tel']);
+                return '<a href="tel:' . $tel . '">' . $this->formatPhoneNumber($tel) . '</a>';
+            }
+            return $matches[0];
+        }, $text);
     }
 
     /**
@@ -831,7 +839,7 @@ class Template
      */
     private function findNodeByPath($nodes, $path)
     {
-        $segments = explode('/', trim($path, '/'));
+        $segments = trim($path, '/') === '' ? [] : explode('/', trim($path, '/'));
         return $this->findNode($nodes, $segments);
     }
 
@@ -1022,6 +1030,9 @@ class Template
     {
         $path = $this->normalizePath($path);
         $includedContent = file_get_contents($filename);
+        if ($includedContent === false) {
+            return false;
+        }
         $includedTree = $this->parseTemplate($includedContent);
 
         // Find the parent node to insert into
@@ -1054,7 +1065,7 @@ class Template
      */
     private function &findNodeReferenceByPath(&$nodes, $path)
     {
-        $segments = explode('/', trim($path, '/'));
+        $segments = trim($path, '/') === '' ? [] : explode('/', trim($path, '/'));
         return $this->findNodeReference($nodes, $segments);
     }
 
